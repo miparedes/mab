@@ -408,7 +408,7 @@ public class MultiTreeIntervals extends CalculationNode implements IntervalList 
      */
     protected static void collectTimes(List<Tree> trees, List<RealParameter> offsets, List<RealParameter> rootLength, double[] times, int[] childCounts) {
     	int c = 0;
-    	int ti =0;
+    	int ti = 0;
     	for (Tree tree : trees) {
 	        Node[] nodes = tree.getNodesAsArray();
 	        for (int i = 0; i < nodes.length; i++) {
@@ -422,7 +422,6 @@ public class MultiTreeIntervals extends CalculationNode implements IntervalList 
 	        c++;
 	        ti++;
     	}
-//    	System.exit(0);
     }
 
     /**

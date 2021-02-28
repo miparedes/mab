@@ -27,17 +27,29 @@ import nab.skygrid.TimeVaryingRates;
         "in account, in other words, the constant required for making this a proper distribution that integrates " +
         "to unity is not calculated (partly, because we don't know how for sequentially sampled data).")
 public class MultiTreeCoalescent extends MultiTreeDistribution {
-    final public Input<PopulationFunction> popSizeInput = new Input<>("populationModel", "A population size model", Validate.REQUIRED);
-    final public Input<TimeVaryingRates> immigrationRateInput = new Input<>("immigrationRate", "A population size model", Validate.REQUIRED);
-    final public Input<RateMultiplier> rateMultiplierInput = new Input<>("rateMultiplier", "A population size model", Validate.OPTIONAL);
+	
+    final public Input<PopulationFunction> popSizeInput = new Input<>("populationModel", 
+    		"A population size model", Validate.REQUIRED);
+    
+    final public Input<TimeVaryingRates> immigrationRateInput = new Input<>("immigrationRate", 
+    		"A population size model", Validate.REQUIRED);
+    
+    final public Input<RateMultiplier> rateMultiplierInput = new Input<>("rateMultiplier", 
+    		"A population size model", Validate.OPTIONAL);
+    
+    final public Input<TimeVaryingRates> samplingRateInput = new Input<>("samplingRate", 
+    		"sampling rate as a rate relative to the population size", Validate.OPTIONAL);
 
-    final public Input<Boolean> rateIsBackwardsInput = new Input<>("rateIsBackwards", "define whether the rate is backwards in time", false);
+
+    final public Input<Boolean> rateIsBackwardsInput = new Input<>("rateIsBackwards", "define whether the rate is backwards in time", true);
 
     
     MultiTreeIntervals intervals;
     TimeVaryingRates immigrationRate;
+    TimeVaryingRates samplingRate;
     RateMultiplier rateMulitplier;
     boolean hasRateMultiplier = false;
+    boolean hasSamplingRate = false;
     
     @Override
     public void initAndValidate() {
@@ -50,6 +62,13 @@ public class MultiTreeCoalescent extends MultiTreeDistribution {
         	rateMulitplier = rateMultiplierInput.get();
         	hasRateMultiplier = true;
         }
+        
+        if (samplingRateInput.get() != null) {
+        	samplingRate = samplingRateInput.get();
+        	hasSamplingRate = true;
+        }
+        	
+        
         calculateLogP();
     }
 
@@ -142,7 +161,6 @@ public class MultiTreeCoalescent extends MultiTreeDistribution {
         	else
         		meanMig = Math.exp(immigrationRate.getMeanRate(startTime, finishTime));
             
-            
             // coalescent part
             logL -= kChoose2 * intervalArea;
             if (rateIsBackwardsInput.get())
@@ -179,6 +197,22 @@ public class MultiTreeCoalescent extends MultiTreeDistribution {
                 else
                 	logL += Math.log(mig/popSizeFunction.getPopSize(finishTime));                
             }
+            if (hasSamplingRate) {
+//            	else
+            		
+            	
+//            	System.out.println(duration / intervalArea);
+            	if (intervals.getIntervalType(i) == IntervalType.SAMPLE) {
+            		double sampling = Math.exp(samplingRate.getRate(finishTime)) * popSizeFunction.getPopSize(finishTime);
+//            		System.out.println(Math.log(meanSampling));
+                    logL += Math.log(sampling);            		
+            	}
+            	if (intervalArea>0.0) {
+            		double meanSampling = Math.exp(samplingRate.getMeanRate(startTime, finishTime)) * duration / intervalArea;
+            		logL -= meanSampling * duration;
+            	}
+            }
+            
             startTime = finishTime;
         }
         

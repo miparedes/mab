@@ -79,6 +79,9 @@ public class Skygrowth extends PopulationFunction.Abstract {
     	double weighted = 0.0;
     	double curr_time = start; 
     	
+//    	System.out.println(start+ " " + first_int + " " + finish + " " + last_int);
+
+    	
     	for (int i = first_int; i <= last_int;i++) {
     		if (i>=rateShifts.getDimension()) {
     			return Double.POSITIVE_INFINITY;
