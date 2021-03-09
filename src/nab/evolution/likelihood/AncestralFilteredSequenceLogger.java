@@ -5,7 +5,9 @@ package nab.evolution.likelihood;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import beast.core.BEASTObject;
 import beast.core.Description;
@@ -30,18 +32,21 @@ public class AncestralFilteredSequenceLogger extends BEASTObject implements Func
 	final public Input<List<AncestralStateTreeLikelihood>> ancestralTreeLikelihoodInput = new Input<>("ancestralTreeLikelihood", "ancestrsal tree likelihoods that," +
 	"if more than one is inputted is assumed to be a filtered alignment", new ArrayList<>());
 	
+	final public Input<Boolean> translateInput = new Input<>("translate", "if true, dna is translated to amino acids", false);
+
+	
 //	int [] siteStates;
 	
     protected DataType dataType;
     
     int totalLength;
     List<Integer[]> mapping;
+    
+    Map<String, String> translationsTable;
 
 	
 	@Override
 	public void init(PrintStream out) {
-		
-		
 		((Tree) ancestralTreeLikelihoodInput.get().get(0).treeInput.get()).init(out);
 		
 		dataType =  ancestralTreeLikelihoodInput.get().get(0).dataInput.get().getDataType();
@@ -55,14 +60,16 @@ public class AncestralFilteredSequenceLogger extends BEASTObject implements Func
 						((FilteredAlignment) ancestralTreeLikelihoodInput.get().get(i).dataInput.get()).alignmentInput.get(),
 						ancestralTreeLikelihoodInput.get().get(i).dataInput.get().getSiteCount()));
 				
-				totalLength = ((FilteredAlignment) ancestralTreeLikelihoodInput.get().get(i).dataInput.get()).alignmentInput.get().getSiteCount();
+				totalLength = ((FilteredAlignment) ancestralTreeLikelihoodInput.get().get(i).dataInput.get()).alignmentInput.get().getSiteCount();			
 			}else {
-				throw new IllegalArgumentException("only allows FilteredALignment based likelihood as input");
+				Integer[] newMap = new Integer[totalLength];
+				for (int j = 0; j < newMap.length; j++)
+					newMap[j] = j;
+				mapping.add(newMap);
 			}
 		}
-		
-//		System.out.println(Arrays.toString(mapping.get(0)));
-//		siteStates = new int[totalLength];	
+		if (translateInput.get())
+			initTable();		
 	}
 	
 	
@@ -217,7 +224,7 @@ public class AncestralFilteredSequenceLogger extends BEASTObject implements Func
 			    if (diffs.size()>0) {
 			    	buf.append("[&" + tagInput.get() + "=\"");
 				    for (int i = 0; i < diffs.size(); i++) {
-				    	buf.append(dataType.getCharacter(parentSiteStates[diffs.get(i)]) + ""+diffs.get(i)+ 
+				    	buf.append(dataType.getCharacter(parentSiteStates[diffs.get(i)]) + "" + (diffs.get(i)+1) + 
 				    			"" + dataType.getCharacter(currSiteStates[diffs.get(i)]));
 				    	if (i<(diffs.size()-1)) {
 				    		buf.append(",");
@@ -267,5 +274,18 @@ public class AncestralFilteredSequenceLogger extends BEASTObject implements Func
 		// TODO Auto-generated method stub
 		
 	}	
-
+	
+	
+	private void initTable() {
+		String dna = "AAA AAC AAG AAT ACA ACC ACG ACT AGA AGC AGG AGT ATA ATC ATG ATT CAA CAC CAG CAT CCA CCC CCG CCT CGA CGC CGG CGT CTA CTC CTG CTT GAA GAC GAG GAT GCA GCC GCG GCT GGA GGC GGG GGT GTA GTC GTG GTT TAA TAC TAG TAT TCA TCC TCG TCT TGA TGC TGG TGT TTA TTC TTG TTT";
+		String aa = "K N K N T T T T R S R S I I M I Q H Q H P P P P R R R R L L L L E D E D A A A A G G G G V V V V O Y O Y S S S S O C W C L F L F";		
+		
+		translationsTable = new HashMap<>();
+		String[] dnaarray = dna.split(" ");
+		String[] aaarray = aa.split(" ");
+		for (int i =0; i < dnaarray.length;i++)
+			translationsTable.put(dnaarray[i], aaarray[i]);		
+		
+		
+	}
 }
