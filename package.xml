@@ -1,9 +1,15 @@
-<packages>
-    <package name="Recombination" version="0.0.2"
-         url="https://github.com/nicfel/Recombination/releases/download/v0.0.2/Recombination.v0.0.2.zip"
-       description="Inference of recombination networks"
-       projectURL="https://taming-the-beast.org/tutorials/Recombination-Tutorial/">
-        <depends on="beast2" atleast="2.6.2" atmost='2.6.9'/>
-  </package>
+<!-- Package file for v2.6.X packages -->
 
+<!-- NOTE: if you edit this file, DO NOT DELETE any entries. Older package versions -->
+<!-- will be available for running BEAST files so that analyses can be replicated   -->
+<!-- with the package versions used in the original analysis.                       -->
+
+<packages>
+    
+    <package name="Recombination" version="0.0.2"
+        url="https://github.com/nicfel/Recombination/releases/download/v0.0.2/Recombination.v0.0.2.zip"
+      description="Inference of recombination networks"
+      projectURL="https://taming-the-beast.org/tutorials/Recombination-Tutorial/">
+       <depends on="beast2" atleast="2.6.0" atmost='2.6.9'/>
+    </package>
 </packages>
