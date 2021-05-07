@@ -72,7 +72,7 @@ public class ExpandedTreeLikelihood extends Distribution {
     
     public Input<Network> networkInput = new Input<>("network", "reassortment network", Input.Validate.REQUIRED);
 
-    public Input<Integer> segmentInput = new Input<>("segment", "segment", Input.Validate.REQUIRED);
+    public Input<String> segmentInput = new Input<>("segment", "segment", Input.Validate.REQUIRED);
 
     
     /**
@@ -570,15 +570,21 @@ public class ExpandedTreeLikelihood extends Distribution {
 	List<Double> reaHeights;
 //	int nodeNr;
 	
-	public void getTreeFormNetwork(int segment) {
+	public void getTreeFormNetwork(String segment) {
 		// find the first coalescent event involving segment
 		NetworkEdge rootEdge = networkInput.get().getRootEdge();
-		NetworkEdge segRootEdge = getSegmentRootEdge(rootEdge, segment);
+		
+		int segIDx = -1;
+		for (int i = 0; i < networkInput.get().segmentNames.length; i++)
+			if (networkInput.get().segmentNames[i].contentEquals(segment))
+				segIDx =i;
+
+		NetworkEdge segRootEdge = getSegmentRootEdge(rootEdge, segIDx);
 				
 		reaHeights = new ArrayList<>();
 		
 		
-		Node rootNode = buildExpandedTree(segRootEdge, segment, null);
+		Node rootNode = buildExpandedTree(segRootEdge, segIDx, null);
 		
 		int nodeNr = 0;
 		for (Node leaf : rootNode.getAllLeafNodes()) {
@@ -592,7 +598,8 @@ public class ExpandedTreeLikelihood extends Distribution {
 		}
 
 		
-		tree = new Tree(rootNode);		
+		tree = new Tree(rootNode);	
+		
 	}
 
 	private NetworkEdge getSegmentRootEdge(NetworkEdge edge, int segment) {
@@ -663,6 +670,7 @@ public class ExpandedTreeLikelihood extends Distribution {
 				}else {					
 					if (!reaHeights.contains(edge.childNode.getHeight()))
 						reaHeights.add(edge.childNode.getHeight());
+					
 					newNode.setID("reaExtinct_" + reaHeights.indexOf(edge.childNode.getHeight()));
 				}
 			}

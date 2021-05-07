@@ -36,6 +36,10 @@ public class AncestralFilteredSequenceExpandedLogger extends BEASTObject impleme
 
 	final public Input<Boolean> relativeToRootInput = new Input<>("relativeToRoot", "if true, difference is computed relative to root", false);
 
+	final public Input<List<String>> readingFrameInput = new Input<>("readingFrame", "denotes different reading frames", new ArrayList<>());
+
+	final public Input<Boolean> computeTOSInput = new Input<>("computeTOS", "if true, computes the time of survival for each node into the future", false);
+
 	
 //	int [] siteStates;
 	
@@ -46,7 +50,39 @@ public class AncestralFilteredSequenceExpandedLogger extends BEASTObject impleme
     
     Map<String, String> translationsTable;
 
-	
+    int[] from;
+    int[] to;
+    
+	@Override
+	public void initAndValidate() {
+		if (ancestralTreeLikelihoodInput.get().get(0).dataInput.get() instanceof FilteredAlignment) {
+			totalLength = 0;
+		}else {
+			totalLength = ancestralTreeLikelihoodInput.get().get(0).dataInput.get().getSiteCount();
+		}
+		for (int i = 0; i < ancestralTreeLikelihoodInput.get().size(); i++) {
+			if (ancestralTreeLikelihoodInput.get().get(i).dataInput.get() instanceof FilteredAlignment) {
+				totalLength = ((FilteredAlignment) ancestralTreeLikelihoodInput.get().get(i).dataInput.get()).alignmentInput.get().getSiteCount();			
+			}
+		}
+
+		if (readingFrameInput.get().size()>0) {
+			from = new int[readingFrameInput.get().size()];
+			to = new int[readingFrameInput.get().size()];
+			for (int i = 0; i < from.length; i++) {
+				String[] tmp = readingFrameInput.get().get(i).split("\\s+");
+				from[i] = Integer.parseInt(tmp[0]);
+				to[i] = Integer.parseInt(tmp[1]);
+			}			
+		}else {
+			from = new int[1];
+			to = new int[1];
+			from[0] = 0;
+			to[0] = totalLength;
+		}
+		
+	}	
+
 	@Override
 	public void init(PrintStream out) {
 		ancestralTreeLikelihoodInput.get().get(0).updateTree();
@@ -54,7 +90,6 @@ public class AncestralFilteredSequenceExpandedLogger extends BEASTObject impleme
 		((Tree) ancestralTreeLikelihoodInput.get().get(0).tree).init(out);
 		
 		dataType =  ancestralTreeLikelihoodInput.get().get(0).dataInput.get().getDataType();
-		totalLength = ancestralTreeLikelihoodInput.get().get(0).dataInput.get().getSiteCount();;
 
 		mapping = new ArrayList<>();
 		
@@ -63,8 +98,6 @@ public class AncestralFilteredSequenceExpandedLogger extends BEASTObject impleme
 				mapping.add(parseFilter(((FilteredAlignment) ancestralTreeLikelihoodInput.get().get(i).dataInput.get()).filterInput.get(),
 						((FilteredAlignment) ancestralTreeLikelihoodInput.get().get(i).dataInput.get()).alignmentInput.get(),
 						ancestralTreeLikelihoodInput.get().get(i).dataInput.get().getSiteCount()));
-				
-				totalLength = ((FilteredAlignment) ancestralTreeLikelihoodInput.get().get(i).dataInput.get()).alignmentInput.get().getSiteCount();			
 			}else {
 				Integer[] newMap = new Integer[totalLength];
 				for (int j = 0; j < newMap.length; j++)
@@ -79,7 +112,6 @@ public class AncestralFilteredSequenceExpandedLogger extends BEASTObject impleme
 	
     private Integer[] parseFilter(String filterString, Alignment alignment, int redCount) {
         // parse filter specification
-//        String filterString = filterInput.get();
         String[] filters = filterString.split(",");
         int[] from = new int[filters.length];
         int[] to = new int[filters.length];
@@ -112,20 +144,13 @@ public class AncestralFilteredSequenceExpandedLogger extends BEASTObject impleme
                 throw new IllegalArgumentException("Don't know how to parse filter " + filterString);
             }
         }
-        
-//        System.out.println(Arrays.toString(from));
-//        System.out.println(Arrays.toString(to));
-//        System.out.println(Arrays.toString(step));
-        
-        
+
         boolean[] used = new boolean[alignment.getSiteCount()];
         for (int i = 0; i < to.length; i++) {
             for (int k = from[i]; k <= to[i]; k += step[i]) {
             	used[k] = true;
             }
         }
-//        System.out.println(Arrays.toString(map));
-//        System.exit(0);
         
         Integer[] map = new Integer[redCount];
         int c=0;
@@ -152,6 +177,9 @@ public class AncestralFilteredSequenceExpandedLogger extends BEASTObject impleme
 	boolean stop = false;
 	@Override
 	public void log(long sample, PrintStream out) {
+		
+		dataType =  ancestralTreeLikelihoodInput.get().get(0).dataInput.get().getDataType();
+
 		for (int i = 0; i < ancestralTreeLikelihoodInput.get().size(); i++) {
 			if (i==0) {
 				ancestralTreeLikelihoodInput.get().get(i).updateTree();
@@ -160,9 +188,32 @@ public class AncestralFilteredSequenceExpandedLogger extends BEASTObject impleme
 			}
 			ancestralTreeLikelihoodInput.get().get(i).calculateLogP();
 		}
+		
+		mapping = new ArrayList<>();
+
+		for (int i = 0; i < ancestralTreeLikelihoodInput.get().size(); i++) {
+			if (ancestralTreeLikelihoodInput.get().get(i).dataInput.get() instanceof FilteredAlignment) {
+				mapping.add(parseFilter(((FilteredAlignment) ancestralTreeLikelihoodInput.get().get(i).dataInput.get()).filterInput.get(),
+						((FilteredAlignment) ancestralTreeLikelihoodInput.get().get(i).dataInput.get()).alignmentInput.get(),
+						ancestralTreeLikelihoodInput.get().get(i).dataInput.get().getSiteCount()));
+			}else {
+				Integer[] newMap = new Integer[totalLength];
+				for (int j = 0; j < newMap.length; j++)
+					newMap[j] = j;
+				mapping.add(newMap);
+			}
+		}
+		
+		if (translateInput.get())
+			initTable();		
+
+		
         out.print("tree STATE_" + sample + " = ");
-        TreeInterface tree = ancestralTreeLikelihoodInput.get().get(0).tree;
+        Tree tree = ancestralTreeLikelihoodInput.get().get(0).tree;
         tree.getRoot().sort();
+        
+        if (computeTOSInput.get())
+        	getTOS(tree);
 
         out.print(toNewick(tree.getRoot(), null, null));
         out.print(";");
@@ -174,11 +225,11 @@ public class AncestralFilteredSequenceExpandedLogger extends BEASTObject impleme
 	}
 
 	
-    String toNewick(Node node, int[] parentSiteStates, List<String> translatedParent) {
+    String toNewick(Node node, int[] parentSiteStates, List<List<String>> translatedParent) {
         StringBuffer buf = new StringBuffer();
         
         int[] currSiteStates = new int[totalLength];
-        List<String> translated = new ArrayList<>();
+        List<List<String>> translated = new ArrayList<>();
         
         for (int i = 0; i < currSiteStates.length; i++)
         	currSiteStates[i] =-1;
@@ -186,7 +237,6 @@ public class AncestralFilteredSequenceExpandedLogger extends BEASTObject impleme
 		for (int i = 0; i < ancestralTreeLikelihoodInput.get().size(); i++) {
 		    int [] patternstates = ancestralTreeLikelihoodInput.get().get(i).getStatesForNode(
 		    		ancestralTreeLikelihoodInput.get().get(0).tree, node);
-		    
 		    
 		    for (int j = 0; j < mapping.get(i).length; j++) {
 		    	currSiteStates[mapping.get(i)[j]] = patternstates[j];
@@ -256,6 +306,8 @@ public class AncestralFilteredSequenceExpandedLogger extends BEASTObject impleme
 						    }  
 						    buf.append("\"");
 					    	buf.append(",mutations="+diffs.size());
+					    	if (node.getMetaData("distance")!=null)
+						    	buf.append(",tos="+node.getMetaData("distance"));
 						    buf.append("]");
 					    }
 	    			}else {
@@ -277,6 +329,9 @@ public class AncestralFilteredSequenceExpandedLogger extends BEASTObject impleme
 						    }  
 						    buf.append("\"");
 					    	buf.append(",mutations="+diffs.size());
+					    	if (node.getMetaData("distance")!=null)
+						    	buf.append(",tos="+node.getMetaData("distance"));
+
 						    buf.append("]");
 					    }
 
@@ -289,35 +344,25 @@ public class AncestralFilteredSequenceExpandedLogger extends BEASTObject impleme
 				    	}
 				    	
 				    }
-				    if (diffs.size()>220) {
-				    	System.out.println(Arrays.toString(parentSiteStates));				    	
-				    	System.out.println(Arrays.toString(currSiteStates));
-				    	System.out.println(node.getID());
-				    	System.out.println(node.getNr());
-				    	stop = true;
-//				    	System.exit(0);
-				    }
 				    	
 			    	buf.append("[&NT_muts=" + diffs.size());
 	    			if (translateInput.get()) {
 					    diffs = new ArrayList<>();
+					    int c=0;
 					    for (int i = 0; i < translatedParent.size(); i++) {
-					    	if (translatedParent.get(i)!=translated.get(i)) {
-					    		diffs.add(i);
+					    	for (int j = 0; j < translatedParent.get(i).size(); j++) {
+						    	if (translatedParent.get(i).get(j)!=translated.get(i).get(j)) {
+						    		c++;
+						    	}
 					    	}
 					    }
-				    	buf.append(",AA_muts=" + diffs.size());
+				    	buf.append(",AA_muts=" + c);
 	    			}
+			    	if (node.getMetaData("distance")!=null)
+				    	buf.append(",tos="+node.getMetaData("distance"));
+
 				    buf.append("]");
 	    		}
-	
-	//	    	buf.append("[&");
-	//	    	for (int k = 0; k < seq.length(); k++) {
-	//	    		buf.append((k > 0 ? "," : "") + tagInput.get()
-	//	    		+ (k < 10 ? "0":"")
-	//	    		+ (k < 100 ? "0":"")
-	//	    		+ k + "=\"" + seq.charAt(k) + "\"");
-	//	    	}
 	    	}
 	    	
 	    } else {
@@ -327,17 +372,20 @@ public class AncestralFilteredSequenceExpandedLogger extends BEASTObject impleme
 
 	    buf.append(':');
         buf.append(Math.max(node.getLength(),0.000000000001));
+//        buf.append(node.getLength());
         return buf.toString();
     }
     
-	private void translate(int[] currSiteStates, List<String> translated) {
-		for (int i = 0; i < currSiteStates.length-2; i=i+3) {
-			String codon = dataType.getCharacter(currSiteStates[i]) +""+dataType.getCharacter(currSiteStates[i+1])+""+dataType.getCharacter(currSiteStates[i+2]); 
-			translated.add(translationsTable.get(codon));
+	private void translate(int[] currSiteStates, List<List<String>> translated) {
+		for (int a = 0; a < from.length; a++) {
+			List<String> translatedFrame = new ArrayList<>();
+			for (int i = from[a]; i < to[a]-2; i=i+3) {
+				String codon = dataType.getCharacter(currSiteStates[i]) +""+dataType.getCharacter(currSiteStates[i+1])+""+dataType.getCharacter(currSiteStates[i+2]);
+				translatedFrame.add(
+						translationsTable.get(codon));
+			}
+			translated.add(translatedFrame);
 		}
-//		System.out.println(translated);
-//		System.exit(0);
-		
 	}
 
 
@@ -357,12 +405,40 @@ public class AncestralFilteredSequenceExpandedLogger extends BEASTObject impleme
 		// TODO Auto-generated method stub
 		return 0;
 	}
-
-	@Override
-	public void initAndValidate() {
-		// TODO Auto-generated method stub
+	
+	private void getTOS(Tree tree){
 		
-	}	
+		for (Node l : tree.getExternalNodes())
+			if (!l.getID().startsWith("rea"))
+				labelDist(l, 0.0);	
+	}
+	
+	private void labelDist(Node n, double dist){
+		if (n.isRoot())
+			return;
+		
+		dist += n.getParent().getHeight()-n.getHeight();
+		
+		if(n.getParent().getMetaData("distance")==null)
+			n.getParent().setMetaData("distance", dist);
+		else
+			n.getParent().setMetaData("distance", Math.max(dist, (double) n.getParent().getMetaData("distance")));
+		
+		// check if one of the child nodes has a 0 length
+		if (n.getParent().getHeight() - n.getParent().getChild(0).getHeight()==0)
+			n.getParent().getChild(0).setMetaData("distance", n.getParent().getMetaData("distance"));
+		// check if one of the child nodes has a 0 length
+		if (n.getParent().getHeight() - n.getParent().getChild(1).getHeight()==0)
+			n.getParent().getChild(1).setMetaData("distance", n.getParent().getMetaData("distance"));
+
+		labelDist(n.getParent(), dist);
+		
+		
+		
+		
+	}
+
+
 	
 	
 	private void initTable() {
