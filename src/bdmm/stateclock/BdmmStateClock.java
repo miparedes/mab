@@ -10,18 +10,29 @@ import beast.core.Loggable;
 import beast.core.parameter.RealParameter;
 import beast.evolution.branchratemodel.BranchRateModel;
 import beast.evolution.tree.Node;
+import beast.evolution.tree.TraitSet;
 
 public class BdmmStateClock extends BranchRateModel.Base implements Loggable {
 
 	final public Input<RealParameter> relativeClockRatesInput = new Input<>("relativeClockRates",
 			"the rate parameters associated with rates in particular states.", Input.Validate.REQUIRED);
+	
+	final public Input<RealParameter> relativeClockScalerInput = new Input<>("relativeClockScalerRates",
+			"an additional scaler in log space for the relative clock rates that allows for additional uncertainty.");
+
+	final public Input<Boolean> normalizeInput = new Input<>("normalize",
+			"if true, the rates are normalized, such that the average clock rate is equal to the clock rate.", false);
+
 
 	final public Input<FlatTypeMappedTree> typedTreeInput = new Input<>("typedTree", "bdmm typed mapped tre.",
 			Input.Validate.REQUIRED);
+	
+
 
 	public int states;
 	RealParameter relativeClockRates;
 	FlatTypeMappedTree typedTree;
+	double[] relTime;
 	
 	boolean isMapped = false;
 
@@ -34,80 +45,99 @@ public class BdmmStateClock extends BranchRateModel.Base implements Loggable {
 		// ensure that the rate parameters has the same dimension as there are states in
 		// the stateClockInput
 		states = typedTree.parameterizationInput.get().getNTypes();
+		
 		if (relativeClockRates.getDimension() != states)
 			relativeClockRates.setDimension(states);
-	}
+		
+		relTime = new double[states];
+	}	
 
 	@Override
-	public double getRateForBranch(Node node) {			
+	public double getRateForBranch(Node node) {		
+		
 		if (node.isRoot())
 			return 0.0;
+
+
+		
+		
 		
 		if (!isMapped) {
-			typedTree.doStochasticMapping();
+			if (!typedTree.doStochasticMapping()) {
+				System.err.println("probabilities at origin were below 0, return negative infinity for this likelihood");
+				return 0.0;
+			}
 			isMapped = true;
 		}
 		
-		double t = 0;
-		for (int i = 0; i < states; i++) {
-			t += typedTree.getNodeTime(node.getNr(), i);
+		
+		if (!typedTree.isWGS(node)) {
+			return 1e-6;
 		}
 		
-//		System.out.println("node");
-//
-//		System.out.println(typedTree.getNodeTime(node.getNr(), 0) + " " + typedTree.getNodeTime(node.getNr(), 1));
 
-		if (t-node.getParent().getHeight()+node.getHeight()>0.000001) {
-			System.out.println("err");
-			System.out.println(t + " " + (node.getParent().getHeight()-node.getHeight()));
-			System.out.println(node.getHeight());
-			System.out.println(typedTree.treeInput.get());
-			System.exit(0);
-		}
 		
+		double t = 0;
+		double normFactor = 0;
+		double length = 0.0;
+		
+		for (int i = 0; i < states; i++) {
+			t += typedTree.getNodeTime(node, i);
+			if (normalizeInput.get()) {
+				if (relativeClockScalerInput.get()!=null)
+					normFactor += relativeClockScalerInput.get().getArrayValue(i) * relativeClockRates.getArrayValue(i)*typedTree.nodeTimeSum[i];
+				else
+					normFactor += relativeClockRates.getArrayValue(i)*typedTree.nodeTimeSum[i];
+				length+=typedTree.nodeTimeSum[i];
+			}
+		}
+		if (normalizeInput.get()) {
+			normFactor /= length;
+		}else {
+			normFactor=1;
+		}
 		
 		// compute the mean rate
 		double rate = 0.0;
 		for (int i = 0; i < states; i++) {
-			rate += typedTree.getNodeTime(node.getNr(), i) * relativeClockRates.getArrayValue(i) ;
+			if (relativeClockScalerInput.get()!=null)
+				rate += relativeClockScalerInput.get().getArrayValue(i) * typedTree.getNodeTime(node.getNr(), i) * relativeClockRates.getArrayValue(i)/normFactor ;
+			else
+				rate += typedTree.getNodeTime(node.getNr(), i) * relativeClockRates.getArrayValue(i)/normFactor ;
 		}
-//		System.out.println(rate);
-//		System.out.println(node.getParent().getHeight()+ " " + node.getHeight());
-//		System.out.println(t);
-//		System.out.println(rate * meanRateInput.get().getValue()/t);
-		if (Double.isNaN(rate * meanRateInput.get().getValue()/t))
-			System.out.println(t);
+		
 		return rate * meanRateInput.get().getValue()/t;
 	}
 
 
 	@Override
 	protected boolean requiresRecalculation() {
-		if (((CalculationNode) typedTree).isDirtyCalculation()) {
-			// this is only called if any of its inputs is dirty, hence we need to recompute
-			isMapped = false;
-			return true;
-		}
-				
-		if (meanRateInput.get().isDirty(0)) {
-			isMapped = false;
-			return true;
-		}
-		
-		for (int i = 0; i < relativeClockRates.getDimension(); i++) {
-			if (relativeClockRates.isDirty(i)) {
-				isMapped = false;
-				return true;
-			}
-		}
-		
-		if (super.requiresRecalculation()) {
-			isMapped = false;
-			return true;
-		}
+//		if (((CalculationNode) typedTree).isDirtyCalculation()) {
+//			// this is only called if any of its inputs is dirty, hence we need to recompute
+//			isMapped = false;
+//			return true;
+//		}
+//				
+//		if (meanRateInput.get().isDirty(0)) {
+//			isMapped = false;
+//			return true;
+//		}
+//		
+//		for (int i = 0; i < relativeClockRates.getDimension(); i++) {
+//			if (relativeClockRates.isDirty(i)) {
+//				isMapped = false;
+//				return true;
+//			}
+//		}
+//		
+//		if (super.requiresRecalculation()) {
+//			isMapped = false;
+//			return true;
+//		}
 			
+		isMapped = false;
 
-		return false;
+		return true;
 	}
 
 //	@Override

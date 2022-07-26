@@ -55,7 +55,6 @@ public class OriginLogger extends BEASTObject implements Loggable {
 
     @Override
     public void log(long sample, PrintStream out) {
-
         tree.remapForLog(sample);
         out.print(getType(tree.getRoot()) + "\t");
     }

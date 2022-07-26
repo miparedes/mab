@@ -91,11 +91,13 @@ public class FlatTypeMappedTree extends CalculationNode implements Loggable {
     public Input<BirthDeathMigrationDistribution> bdmmDistribInput = new Input<>("bdmmDistrib",
             "If provided, extract the parameterization from here.",
             Input.Validate.XOR, parameterizationInput);
+        
+    public Input<Integer> originStateInput = new Input<>(
+            "originState",
+            "state of the origin");
     
-    public Input<Integer> nrIterations = new Input<>("iterations",
-            "its",
-            1);
-    
+    public Input<TraitSet> wgsTypeInput = new Input<>("isWGS",
+            "Information about if a sequence is whoel genome or amplicon.", Input.Validate.OPTIONAL);
 
 
     private Parameterization param;
@@ -109,6 +111,10 @@ public class FlatTypeMappedTree extends CalculationNode implements Loggable {
     
     double[] nodeTime;
     double[] storedNodeTime;
+    
+    double[] nodeTimeSum;
+    double[] storedNodeTimeSum;
+
     
 
     /**
@@ -140,17 +146,15 @@ public class FlatTypeMappedTree extends CalculationNode implements Loggable {
 
         finalSampleOffset = finalSampleOffsetInput.get();
 
-        if (mapOnInitInput.get())
-            doStochasticMapping();
     }
 
     /**
      * Generate new tree by stochastically mapping type changes on untyped tree.
      * Called both during initialization and at when logging.
      */
-    boolean doStochasticMapping() {
+    boolean doStochasticMapping() {    	
+    	
          // Prepare the backward-time integrator!
-
         odeIntegrator = new DormandPrince54Integrator(
                 param.getTotalProcessLength()*BACKWARD_INTEGRATION_MIN_STEP,
                 param.getTotalProcessLength()*BACKWARD_INTEGRATION_MAX_STEP,
@@ -158,14 +162,19 @@ public class FlatTypeMappedTree extends CalculationNode implements Loggable {
 
         // Prepare the ODE system and the arrays used to store the backward-time
         // integration results.
-
         odeSystem = new ODESystem(param);
         integrationResults = new ContinuousOutputModel[untypedTree.getNodeCount()];
         geScaleFactors = new double[untypedTree.getNodeCount()];
         
         nodeTime = new double[untypedTree.getNodeCount()*param.getNTypes()];
+        nodeTimeSum = new double[param.getNTypes()];
         // Perform the backward-time integration.
-        double[] y = backwardsIntegrateSubtree(untypedTree.getRoot(), 0.0);
+        double[] y = new double[0];
+        try {
+        	y = backwardsIntegrateSubtree(untypedTree.getRoot(), 0.0);
+        }catch (Exception e){
+    	     return false;   	
+        }
 
         // Sample starting type
 
@@ -173,14 +182,41 @@ public class FlatTypeMappedTree extends CalculationNode implements Loggable {
 
         for (int type=0; type<param.getNTypes(); type++)
             startTypeProbs[type] = y[type+param.getNTypes()]*frequenciesInput.get().getValue(type);
+        
+        if (originStateInput.get()!=null) {
+            for (int type=0; type<param.getNTypes(); type++)
+            	if (type!=originStateInput.get())
+            		startTypeProbs[type] = 0;
 
+        }
+        
+        
         // (startTypeProbs are unnormalized: this is okay for randomChoicePDF.)
-        for (int type=0; type<param.getNTypes(); type++)
+        double sum = 0;
+        for (int type=0; type<param.getNTypes(); type++) {
         	if (startTypeProbs[type]<0)
         		return false;
+        	sum+=startTypeProbs[type];
+        }
+        
+        
+        for (int type=0; type<param.getNTypes(); type++)
+        	startTypeProbs[type]/=sum;
+        
+        
+   		boolean worked = forwardSimulateSubtree(untypedTree.getRoot(), 0.0, startTypeProbs);
+   		   		   		
+   		
+   		nodeTimeSum = new double[nodeTimeSum.length];
+   		for (int i = 0; i < untypedTree.getNodeCount(); i++) {
+   			if (i!=untypedTree.getRoot().getNr() && isWGS(untypedTree.getNode(i))) {
+	   			for (int j = 0; j < param.getNTypes();j++) {
+	   				nodeTimeSum[j] += nodeTime[i*param.getNTypes()+j];
+	   			}
+   			}
+   		}
 
-   		forwardSimulateSubtree(untypedTree.getRoot(), 0.0, startTypeProbs);   		
-        return true;
+   		return worked;
     }
 
     /**
@@ -229,6 +265,7 @@ public class FlatTypeMappedTree extends CalculationNode implements Loggable {
 
         for (int nodeNr=0; nodeNr < treeInput.get().getLeafNodeCount(); nodeNr++) {
             double nodeTime = param.getNodeTime(untypedTree.getNode(nodeNr), finalSampleOffset.getArrayValue());
+            
             rhoSampled[nodeNr] = false;
             for (double rhoSamplingTime : param.getRhoSamplingTimes()) {
                 if (Utils.equalWithPrecision(nodeTime, rhoSamplingTime)) {
@@ -331,13 +368,12 @@ public class FlatTypeMappedTree extends CalculationNode implements Loggable {
         double timeOfSubtreeRootEdgeBottom = param.getNodeTime(untypedSubtreeRoot, finalSampleOffset.getArrayValue());
 
         odeIntegrator.addEventHandler(odeSystem,
-                (timeOfSubtreeRootEdgeTop-timeOfSubtreeRootEdgeBottom)/RATE_CHANGE_CHECKS_PER_EDGE,
+                (timeOfSubtreeRootEdgeBottom-timeOfSubtreeRootEdgeTop)/RATE_CHANGE_CHECKS_PER_EDGE,
                 RATE_CHANGE_CHECK_CONVERGENCE, RATE_CHANGE_MAX_ITERATIONS);
 
         odeSystem.setInterval(param.getIntervalIndex(timeOfSubtreeRootEdgeBottom-delta));
-
+        
         // Perform the integration:
-
         odeIntegrator.integrate(odeSystem,
                 timeOfSubtreeRootEdgeBottom - delta, y,
                 timeOfSubtreeRootEdgeTop+delta, y);
@@ -377,6 +413,7 @@ public class FlatTypeMappedTree extends CalculationNode implements Loggable {
         }
 
         int leafType = getLeafType(leafNode);
+        
 
         if (nodeIsRhoSampled(leafNode)) {
 
@@ -524,131 +561,13 @@ public class FlatTypeMappedTree extends CalculationNode implements Loggable {
      * @param startType type at the start of the simulation.
      * @return root of new tree with type changes marked.
      */
-    private void forwardSimulateSubtree(Node subtreeRoot, double startTime, int startType) {
-
-//        Node root = new Node();
-//        setNodeType(subtreeRoot, startType);
-
-//        Node currentNode = root;
-        int currentType = startType;
-        double currentTime = startTime;        
-        double lastTime = currentTime;
-
-        double endTime = param.getNodeTime(subtreeRoot, finalSampleOffset.getArrayValue());
-
-        double[] rates = new double[param.getNTypes()];
-        double[] ratesPrime = new double[param.getNTypes()];
-        double totalRate, totalRatePrime;
-
-        while (true) {
-
-            // Determine time of next event
-
-            double K = -Math.log(Randomizer.nextDouble());
-            double I = 0.0;
-
-            double t = currentTime;
-            double dt = (endTime-currentTime)/ FORWARD_INTEGRATION_STEPS;
-            totalRate = getTotalFowardsRate(currentType, currentTime, subtreeRoot, rates);
-
-            int integrationStep;
-            for (integrationStep=0; integrationStep< FORWARD_INTEGRATION_STEPS; integrationStep++) {
-                double tprime = currentTime + (endTime-currentTime)*(integrationStep+1)/ FORWARD_INTEGRATION_STEPS;
-
-                totalRatePrime = getTotalFowardsRate(currentType, tprime, subtreeRoot, ratesPrime);
-
-                I += dt*(totalRate + totalRatePrime)/2.0;
-
-                if (I >= K) {
-                    currentTime = t + 0.5*dt;
-                    break;
-                }
-
-                totalRate = totalRatePrime;
-                double[] tmp = rates;
-                rates = ratesPrime;
-                ratesPrime = tmp;
-
-                t = tprime;
-            }
-
-            if (integrationStep == FORWARD_INTEGRATION_STEPS)
-                break;
-
-            
-            nodeTime[subtreeRoot.getNr()*param.getNTypes()+currentType] += currentTime-lastTime;
-            lastTime = currentTime;
-            
-//            System.out.println(Arrays.toString(rates) + " " + Arrays.toString(ratesPrime));
-
-            
-//            currentNode.setHeight(param.getAge(currentTime, finalSampleOffset.getArrayValue()));
-            for (int i = 0; i < rates.length; i++)
-            	rates[i] = (rates[i]+ratesPrime[i])/2;
-            
-//            // Sample event type
-//            System.out.println(Arrays.toString(rates));
-
-            currentType = Randomizer.randomChoicePDF(rates);
-
-            // Implement event in tree
-
-//            Node newNode = new Node();
-//            setNodeType(newNode, currentType);
-//
-//            currentNode.addChild(newNode);
-//            currentNode = newNode;
-        }
-
-//        currentNode.setHeight(param.getAge(endTime, finalSampleOffset.getArrayValue()));
-        
-        nodeTime[subtreeRoot.getNr()*param.getNTypes()+currentType] += endTime-lastTime;
-
-
-        switch(getNodeKind(subtreeRoot)) {
-            case LEAF:
-//                currentNode.setNr(subtreeRoot.getNr());
-//                currentNode.setID(subtreeRoot.getID());
-                break;
-
-            case SA:
-//                Node oldDAChild = subtreeRoot.getDirectAncestorChild();
-//                Node newDAChild = new Node();
-//
-//                newDAChild.setHeight(oldDAChild.getHeight());
-//                setNodeType(newDAChild, currentType);
-//                newDAChild.setNr(oldDAChild.getNr());
-//                newDAChild.setID((oldDAChild.getID()));
-//
-//                currentNode.addChild(newDAChild);
-                forwardSimulateSubtree(subtreeRoot.getNonDirectAncestorChild(), endTime, currentType);
-                break;
-
-            case INTERNAL:
-                int[] childTypes = sampleChildTypes(subtreeRoot, currentType);
-                forwardSimulateSubtree(subtreeRoot.getChild(0), endTime, childTypes[0]);
-                forwardSimulateSubtree(subtreeRoot.getChild(1), endTime, childTypes[1]);
-                break;
-
-            default:
-                throw new IllegalArgumentException("Switch fell through in forward simulation.");
-        }
-
-//        return root;
-    }
-
-    /**
-     * Use a forward-time stochastic simulation algorithm to apply type changes
-     * to a tree.  This requires that the backwards integration calculation has
-     * already been performed.
-     *
-     * @param subtreeRoot root of (untyped) subtree to generate mapping for.
-     * @param startTime time above root to start the simulation.
-     * @param startType type at the start of the simulation.
-     * @return root of new tree with type changes marked.
-     */
-    private void forwardSimulateSubtree(Node subtreeRoot, double startTime, double[] startTypeProbs) {
+    private boolean forwardSimulateSubtree(Node subtreeRoot, double startTime, double[] startTypeProbs) {
+    	
+//    	if (!isWGS(subtreeRoot))
+//    		return true;
+    	
     	double totProb = 0.0;
+    	
         
     	// normalize
     	for (int a = 0 ; a < param.getNTypes(); a++) {
@@ -691,9 +610,11 @@ public class FlatTypeMappedTree extends CalculationNode implements Loggable {
             for (int a = 0; a < param.getNTypes(); a++) {            		
             	double avg = (totalRate[a] + totalRatePrime[a]);  	
             	            	
-            	double totOutflow = startTypeProbs[a]*dt*avg/2;
+            	double totOutflow = startTypeProbs[a]*(1-Math.exp(-dt*avg/2));
             	
-            	totOutflow = Math.min(startTypeProbs[a], totOutflow);
+
+            	
+//            	totOutflow = Math.min(startTypeProbs[a], totOutflow);
             	
                 if (avg>10e-10) {
 	            	startTypeProbsPrime[a] -= totOutflow;
@@ -707,6 +628,7 @@ public class FlatTypeMappedTree extends CalculationNode implements Loggable {
 	            		startTypeProbsPrime[b] = startTypeProbs[b];
 
             	}
+
             }
             
             for (int a = 0; a < param.getNTypes(); a++) {
@@ -728,14 +650,6 @@ public class FlatTypeMappedTree extends CalculationNode implements Loggable {
             tottime += dt;
         }
         
-//        if (subtreeRoot.isLeaf() && subtreeRoot.getID().contentEquals("inv10loc1")) {
-//        	System.out.println(subtreeRoot.getNr());
-//        	System.out.println(treeInput.get().toString());
-//        	System.out.println(Arrays.toString(startTypeProbsPrime));
-//        	System.out.println(nodeTime[subtreeRoot.getNr()*param.getNTypes()+0]);
-//        	System.out.println(nodeTime[subtreeRoot.getNr()*param.getNTypes()+1]);
-//        	System.exit(0);
-//        }
 
         if (!subtreeRoot.isRoot()) {
         
@@ -746,16 +660,18 @@ public class FlatTypeMappedTree extends CalculationNode implements Loggable {
         }
         
         if (Double.isNaN(nodeTime[subtreeRoot.getNr()*param.getNTypes()+0]) || Double.isNaN(nodeTime[subtreeRoot.getNr()*param.getNTypes()+1])) {
-        	System.out.println(Arrays.toString(startTypeProbs));
-        	System.exit(0);
+        	return false;
+//        	System.out.println(Arrays.toString(startTypeProbs));
+//        	System.out.println(subtreeRoot);
+//        	System.exit(0);
         }
         if (Double.isNaN(nodeTime[subtreeRoot.getNr()*param.getNTypes()+1])) {
-        	System.out.println(Arrays.toString(startTypeProbs));
-        	System.exit(0);
+        	return false;
+//        	System.out.println(Arrays.toString(startTypeProbs));
+//        	System.exit(0);
         }
 
         
-//        System.out.println(Arrays.toString(startTypeProbs));
         
 
         int currentType = 0;
@@ -778,6 +694,7 @@ public class FlatTypeMappedTree extends CalculationNode implements Loggable {
             default:
                 throw new IllegalArgumentException("Switch fell through in forward simulation.");
         }
+        return true;
     }
 
     
@@ -936,7 +853,12 @@ public class FlatTypeMappedTree extends CalculationNode implements Loggable {
      */
     private double[] getForwardsRates(int fromType, double time, Node baseNode, double[] result) {
         double[] y = getBackwardsIntegrationResult(baseNode, time);
-
+        
+//        for (int i = 0; i < y.length; i++)
+//        	if (y[i]<1e-80)
+//        		y[i] = 0;
+//        
+//        
         int interval = param.getIntervalIndex(time);
 
         for (int type=0; type<param.getNTypes(); type++) {
@@ -948,7 +870,10 @@ public class FlatTypeMappedTree extends CalculationNode implements Loggable {
             result[type] = (param.getCrossBirthRates()[interval][fromType][type] * y[type]
                         + param.getMigRates()[interval][fromType][type])
                         * y[param.getNTypes() + type];
+
         }
+        
+        
 
         if (y[param.getNTypes()+fromType]<=0.0) {
             // The source type prob approaches zero as the integration closes
@@ -964,10 +889,9 @@ public class FlatTypeMappedTree extends CalculationNode implements Loggable {
                     maxRate = result[type];
                 }
             }
-
-            for (int type=0; type<param.getNTypes(); type++)
-                result[type] = type == maxRateIdx ? 1e10 : 0.0 ;
-
+            if (maxRate!=0)
+	            for (int type=0; type<param.getNTypes(); type++)
+	                result[type] = type == maxRateIdx ? 1e10 : 0.0 ;
         } else {
             // Apply source type prob as rate denominator:
 
@@ -975,6 +899,7 @@ public class FlatTypeMappedTree extends CalculationNode implements Loggable {
                 result[type] /= y[param.getNTypes()+fromType];
 
         }
+
 
         return result;
     }
@@ -1055,26 +980,46 @@ public class FlatTypeMappedTree extends CalculationNode implements Loggable {
 			}				
 		}else {
 			for (Node nodes : untypedTree.getInternalNodes()) {
-//				System.out.println(nodes.getHeight()-n.getHeight());
 				if (Math.abs(nodes.getHeight()-n.getHeight())<10E-15) {
 					index = nodes.getNr();
 					break;
 				}
-			}				
-
+			}
 		}
-//		System.out.println(n.getHeight());
 		
 		return nodeTime[index*param.getNTypes()+i];
+	}
+	
+	
+	public boolean isWGS(Node node) {
+		if (wgsTypeInput.get()==null)
+			return true;
+		
+		boolean isWGS = false;
+		if (!node.isLeaf()) {
+			for (Node n : node.getAllLeafNodes()) {
+				Integer nodeTypeName = Integer.parseInt(wgsTypeInput.get().getStringValue(n.getID()));
+				if (nodeTypeName==1)	
+					isWGS = true;
+			}
+		}else {		
+			Integer nodeTypeName = Integer.parseInt(wgsTypeInput.get().getStringValue(node.getID()));
+			if (nodeTypeName==1)	
+				isWGS = true;
+		}
+		return isWGS;
 	}
 
 
 	@Override
 	public void store() {
 		super.store();
-		storedNodeTime = new double[nodeTime.length];
+		
+		storedNodeTime = new double[nodeTime.length];		
 		System.arraycopy(nodeTime, 0, storedNodeTime, 0, nodeTime.length);
-				
+		
+		storedNodeTimeSum = new double[nodeTimeSum.length];
+		System.arraycopy(nodeTimeSum, 0, storedNodeTimeSum, 0, nodeTimeSum.length);
 	}
 	
 	@Override
@@ -1082,6 +1027,11 @@ public class FlatTypeMappedTree extends CalculationNode implements Loggable {
 		double[] tmp = storedNodeTime;
 		storedNodeTime = nodeTime;
 		nodeTime = tmp;
+		
+		double[] tmp2 = storedNodeTimeSum;
+		storedNodeTimeSum = nodeTimeSum;
+		nodeTimeSum = tmp2;		
+	
 		super.restore();
 		
 	}
