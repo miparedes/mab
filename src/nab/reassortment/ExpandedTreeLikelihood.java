@@ -46,6 +46,7 @@ import beast.evolution.tree.Tree;
 import beast.evolution.tree.TreeInterface;
 import coalre.network.Network;
 import coalre.network.NetworkEdge;
+import coalre.network.NetworkNode;
 
 import java.util.*;
 
@@ -70,9 +71,10 @@ public class ExpandedTreeLikelihood extends Distribution {
     final public Input<BranchRateModel.Base> branchRateModelInput = new Input<>("branchRateModel",
             "A model describing the rates on the branches of the beast.tree.");
     
-    public Input<Network> networkInput = new Input<>("network", "reassortment network", Input.Validate.REQUIRED);
+    public Input<Network> networkInput = new Input<>("network", "reassortment network");
+    public Input<Tree> treeInput = new Input<>("tree", "reassortment network", Input.Validate.XOR, networkInput);
 
-    public Input<String> segmentInput = new Input<>("segment", "segment", Input.Validate.REQUIRED);
+    public Input<String> segmentInput = new Input<>("segment", "segment", Input.Validate.XOR, treeInput);
 
     
     /**
@@ -150,11 +152,15 @@ public class ExpandedTreeLikelihood extends Distribution {
         } else {
             branchRateModel = new StrictClockModel();
         }
+        
+        if (networkInput.get()==null)
+        	tree = treeInput.get();
 
     }
     
     public void updateTree() {
-    	getTreeFormNetwork(segmentInput.get());    	
+        if (networkInput.get()!=null)
+        	getTreeFormNetwork(segmentInput.get());    	
     }
     
     public void setTree(Tree tree) {
@@ -568,6 +574,7 @@ public class ExpandedTreeLikelihood extends Distribution {
     
     
 	List<Double> reaHeights;
+	List<Double> networkHeights;
 //	int nodeNr;
 	
 	public void getTreeFormNetwork(String segment) {
@@ -582,6 +589,10 @@ public class ExpandedTreeLikelihood extends Distribution {
 		NetworkEdge segRootEdge = getSegmentRootEdge(rootEdge, segIDx);
 				
 		reaHeights = new ArrayList<>();
+		networkHeights = new ArrayList<>();
+		for (NetworkNode n : networkInput.get().getNodes())
+			if (n.isReassortment())
+				networkHeights.add(n.getHeight());
 		
 		
 		Node rootNode = buildExpandedTree(segRootEdge, segIDx, null);
@@ -639,8 +650,17 @@ public class ExpandedTreeLikelihood extends Distribution {
 				if (!reaHeights.contains(edge.childNode.getHeight()))
 					reaHeights.add(edge.childNode.getHeight());
 				
-				dummyChildNode.setID("reaSurvived_" + reaHeights.indexOf(edge.childNode.getHeight()));
+				dummyChildNode.setID("reaSurvived_" + networkHeights.indexOf(edge.childNode.getHeight()));
+				BitSet segs = (BitSet) edge.hasSegments.clone();
+				segs.set(segment, false);
+				dummyChildNode.setMetaData("co", segs);
+
 				
+				if (edge.childNode.getParentEdges().get(0).hasSegments.get(segment))
+					dummyChildNode.setMetaData("not", edge.childNode.getParentEdges().get(1).hasSegments);
+				else
+					dummyChildNode.setMetaData("not", edge.childNode.getParentEdges().get(0).hasSegments);
+      				
 				newNode.addChild(dummyChildNode);
 				newNode.addChild(buildExpandedTree(edge.childNode.getChildEdges().get(0), segment, newNode));
 			}else {
@@ -658,20 +678,20 @@ public class ExpandedTreeLikelihood extends Distribution {
 						if (!reaHeights.contains(edge.childNode.getHeight()))
 							reaHeights.add(edge.childNode.getHeight());
 						
-						dummyChildNode.setID("reaSurvivedUnknown_" + reaHeights.indexOf(edge.childNode.getHeight()));
+						dummyChildNode.setID("reaSurvivedUnknown_" + networkHeights.indexOf(edge.childNode.getHeight()));
 						
 						newNode.addChild(dummyChildNode);
 						newNode.addChild(buildExpandedTree(edge.childNode.getChildEdges().get(0), segment, newNode));
 
 					}else {
-						newNode.setID("reaExtUnknown_" + reaHeights.indexOf(edge.childNode.getHeight()));
+						newNode.setID("reaExtUnknown_" + networkHeights.indexOf(edge.childNode.getHeight()));
 					}
 					
 				}else {					
 					if (!reaHeights.contains(edge.childNode.getHeight()))
 						reaHeights.add(edge.childNode.getHeight());
 					
-					newNode.setID("reaExtinct_" + reaHeights.indexOf(edge.childNode.getHeight()));
+					newNode.setID("reaExtinct_" + networkHeights.indexOf(edge.childNode.getHeight()));
 				}
 			}
 		}else {

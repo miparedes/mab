@@ -32,26 +32,39 @@ import beast.util.HeapSort;
  */
 @Description("Extracts the intervals from a tree. Points in the intervals " +
         "are defined by the heights of nodes in the tree.")
-public class MultiTreeIntervals extends CalculationNode implements IntervalList {
+public class StructuredMultiTreeIntervals extends CalculationNode implements IntervalList {
 	
     final public Input<List<Tree>> treeInput = new Input<>("tree", "tree for which to calculate the intervals", new ArrayList<>());
 //    final public Input<List<RealParameter>> offsetInput = new Input<>("offset", "time offset ", new ArrayList<>());
     final public Input<List<RealParameter>> rootLengthInput = new Input<>("rootLength", "time offset ", new ArrayList<>());
 
-    double[] offset;
-
-    
-    public MultiTreeIntervals() {
+    public StructuredMultiTreeIntervals() {
         super();
     }
 
-    public MultiTreeIntervals(List<Tree> treeList) {
+    public StructuredMultiTreeIntervals(List<Tree> treeList) {
     	for (Tree t : treeList)
     		init(t);
     }
+    
+    int[] treeNodeCount;
+    double[] offset;
+    Map<Integer, String> tipMapping;
 
     @Override
     public void initAndValidate() {
+    	treeNodeCount = new int[treeInput.get().size()];
+    	tipMapping = new HashMap<>();
+    	
+    	for (int i = 0; i < treeInput.get().size()-1; i++) {
+    		treeNodeCount[i+1] = treeInput.get().get(i).getNodeCount() + treeNodeCount[i];
+    	}
+    	for (int i = 0; i < treeInput.get().size(); i++) {
+    		for (Node l : treeInput.get().get(i).getExternalNodes())
+    			tipMapping.put(l.getNr() + treeNodeCount[i], l.getID());
+    	}
+   	
+    	
     	offset = new double[treeInput.get().size()];
     	for (int i = 0; i < treeInput.get().size(); i++) {
     		offset[i] = getMaxValue(treeInput.get().get(i).getDateTrait());
@@ -67,7 +80,7 @@ public class MultiTreeIntervals extends CalculationNode implements IntervalList 
 
         // this initialises data structures that store/restore might need
         calculateIntervals();
-        intervalsKnown = false;
+        intervalsKnown = false;        
     }
     
     private double getMaxValue(TraitSet trait) {
@@ -142,8 +155,19 @@ public class MultiTreeIntervals extends CalculationNode implements IntervalList 
         return str;
     }
 
-    
-
+    protected int[] getTree(int lineageNr) {
+    	int[] retour = new int[2];
+    	for (int i = 1;i < treeNodeCount.length; i++) {
+    		if (lineageNr<treeNodeCount[i]) {
+    			retour[0] = i-1;
+    			retour[1] = lineageNr - treeNodeCount[i-1];
+    			return retour;
+    		}
+    	}
+		retour[0] = treeNodeCount.length-1;
+		retour[1] = lineageNr - treeNodeCount[treeNodeCount.length-1];
+    	return retour;
+	}
 
     /**
      * CalculationNode methods *
@@ -175,6 +199,18 @@ public class MultiTreeIntervals extends CalculationNode implements IntervalList 
         IntervalType[] tmp4 = storedIntervalTypes;
         storedIntervalTypes = intervalTypes;
         intervalTypes = tmp4;
+        
+        int[] tmp5 = storedLineagesAdded;
+        storedLineagesAdded = lineagesAdded;
+        lineagesAdded = tmp5;
+        
+        int[] tmp6 = storedLineagesRemoved;
+        storedLineagesRemoved = lineagesRemoved;
+        lineagesRemoved = tmp6;
+        
+        double tmp7 = storedRootHeight;
+        storedRootHeight = rootHeight;
+        rootHeight = tmp7;
 
         super.restore();
     }
@@ -184,7 +220,10 @@ public class MultiTreeIntervals extends CalculationNode implements IntervalList 
         System.arraycopy(lineageCounts, 0, storedLineageCounts, 0, lineageCounts.length);
         System.arraycopy(intervals, 0, storedIntervals, 0, intervals.length);
         System.arraycopy(intervalTypes, 0, storedIntervalTypes, 0, intervalTypes.length);
+        System.arraycopy(lineagesAdded, 0, storedLineagesAdded, 0, lineagesAdded.length);
+        System.arraycopy(lineagesRemoved, 0, storedLineagesRemoved, 0, lineagesRemoved.length);
         storedIntervalCount = intervalCount;
+        storedRootHeight = rootHeight;
         super.store();
     }
 
@@ -208,9 +247,9 @@ public class MultiTreeIntervals extends CalculationNode implements IntervalList 
      */
     @Override
 	public int getIntervalCount() {
-        if (!intervalsKnown) {
+//        if (!intervalsKnown) {
             calculateIntervals();
-        }
+//        }
         return intervalCount;
     }
 
@@ -381,36 +420,45 @@ public class MultiTreeIntervals extends CalculationNode implements IntervalList 
 
         times = new double[nodeCount];
         int[] childCounts = new int[nodeCount];
+        int[] added = new int[nodeCount];
+        int[] removed = new int[nodeCount*2];
 
-        collectTimes(treeInput.get(), offset, rootLengthInput.get(), times, childCounts);
+        collectTimes(treeInput.get(), offset, rootLengthInput.get(), times, childCounts, added, removed,  treeNodeCount);
 
         indices = new int[nodeCount];
 
-        HeapSort.sort(times, indices);        
+        HeapSort.sort(times, indices);
+        
 
 
         if (intervals == null || intervals.length != nodeCount) {
             intervals = new double[nodeCount];
             lineageCounts = new int[nodeCount];
             intervalTypes = new IntervalType[nodeCount];
+            lineagesAdded = new int[nodeCount];
+            lineagesRemoved = new int[2*nodeCount];
             storedIntervals = new double[nodeCount];
             storedLineageCounts = new int[nodeCount];
             storedIntervalTypes = new IntervalType[nodeCount];
-        } 
+            storedLineagesAdded = new int[nodeCount];
+            storedLineagesRemoved = new int[2*nodeCount];
+        } else {
+            lineagesAdded = new int[nodeCount];
+            lineagesRemoved = new int[2*nodeCount];
+        }
 
         // start is the time of the first tip
         double start = times[indices[0]];
         int numLines = 0;
         int nodeNo = 0;
         intervalCount = 0;
-        
-        boolean[] isDirty = new boolean[nodeCount];
-
-        
         while (nodeNo < nodeCount) {
 
-            int lineagesRemoved = 0;
-            int lineagesAdded = 0;
+            int nrlineagesRemoved = 0;
+            int nrlineagesAdded = 0;
+            
+            int[] linRemoved = new int[2];
+            int linAded;
 
             double finish = times[indices[nodeNo]];
             double next;
@@ -421,14 +469,24 @@ public class MultiTreeIntervals extends CalculationNode implements IntervalList 
                 // don't use nodeNo from here on in do loop
                 nodeNo += 1;
                 if (childCount == 0) {
-                    lineagesAdded += 1;
+                	nrlineagesAdded += 1;
                     intervalTypes[nodeNo-1] = IntervalType.SAMPLE;
+                    lineagesAdded[nodeNo-1] = added[childIndex];
+                    lineagesRemoved[2*(nodeNo-1)] = -1;
+                    lineagesRemoved[2*(nodeNo-1)+1] = -1;
+
                 } else if (childCount == 1){
-                    lineagesRemoved += 1;
+                	nrlineagesRemoved += 1;
                     intervalTypes[nodeNo-1] = IntervalType.MIGRATION;
+                    lineagesRemoved[2*(nodeNo-1)] = removed[2*childIndex];
+                    lineagesRemoved[2*(nodeNo-1)+1] = -1;
+                    lineagesAdded[nodeNo-1] = -1;
                 } else{
-                    lineagesRemoved += (childCount - 1);
+                	nrlineagesRemoved += (childCount - 1);
                     intervalTypes[nodeNo-1] = IntervalType.COALESCENT;
+                    lineagesAdded[nodeNo-1] = added[childIndex];
+                    lineagesRemoved[2*(nodeNo-1)] = removed[2*childIndex];
+                    lineagesRemoved[2*(nodeNo-1)+1] = removed[2*childIndex+1];
                 }
 
                 if (nodeNo < nodeCount) {
@@ -436,7 +494,7 @@ public class MultiTreeIntervals extends CalculationNode implements IntervalList 
                 } else break;
             } while (Math.abs(next - finish) <= multifurcationLimit);
 
-            if (lineagesAdded > 0) {
+            if (nrlineagesAdded > 0) {
 
                 if (intervalCount > 0 || ((finish - start) > multifurcationLimit)) {
                     intervals[intervalCount] = finish - start;
@@ -448,22 +506,27 @@ public class MultiTreeIntervals extends CalculationNode implements IntervalList 
             }
 
             // add sample event
-            numLines += lineagesAdded;
+            numLines += nrlineagesAdded;
 
-            if (lineagesRemoved > 0) {
+            if (nrlineagesRemoved > 0) {
                 intervals[intervalCount] = finish - start;
                 lineageCounts[intervalCount] = numLines;
                 intervalCount += 1;
                 start = finish;
             }
             // coalescent event
-            numLines -= lineagesRemoved;
+            numLines -= nrlineagesRemoved;
         }
         
         double[] corrtime = new double[times.length];
+        rootHeight = 0.0;
         for (int i=0; i < times.length;i++) {
         	corrtime[i] = times[indices[i]];
         }
+        for (int i=0; i < intervals.length;i++) {
+        	rootHeight += intervals[i];
+        }
+
         intervalsKnown = true;
     }
 
@@ -480,6 +543,21 @@ public class MultiTreeIntervals extends CalculationNode implements IntervalList 
         return times[indices[i]];
     }
     
+    public int getLineagesAdded(int i) {
+        if (!intervalsKnown) {
+            calculateIntervals();
+        }
+        return lineagesAdded[i];
+    }
+    
+    public int getLineagesRemoved(int index, int index2) {
+        if (!intervalsKnown) {
+            calculateIntervals();
+        }
+        return lineagesRemoved[index*2 + index2];
+    }
+
+    
 
     /**
      * @return the delta parameter of Pybus et al (Node spread statistic)
@@ -488,6 +566,11 @@ public class MultiTreeIntervals extends CalculationNode implements IntervalList 
 
         return IntervalList.Utils.getDelta(this);
     }
+    
+    
+//    public String getIDfromNr(int nr) {
+//    	
+//    }
 
     /**
      * extract coalescent times and tip information into array times from beast.tree.
@@ -495,26 +578,43 @@ public class MultiTreeIntervals extends CalculationNode implements IntervalList 
      * @param tree        the beast.tree
      * @param times       the times of the nodes in the beast.tree
      * @param childCounts the number of children of each node
+     * @param removed 
+     * @param added 
      */
-    protected static void collectTimes(List<Tree> trees, double[] offset, List<RealParameter> rootLength, double[] times, int[] childCounts) {
+    protected static void collectTimes(List<Tree> trees, double[] offset2, List<RealParameter> rootLength, double[] times, int[] childCounts, int[] added, int[] removed, int[] treeNodeCount) {
+    	
     	int c = 0;
     	int ti = 0;
-
     	for (Tree tree : trees) {
 	        Node[] nodes = tree.getNodesAsArray();
 	        for (int i = 0; i < nodes.length; i++) {
 	            Node node = nodes[i];
-	            times[c] = node.getHeight() + offset[ti];
-	            childCounts[c] = node.isLeaf() ? 0 : 2;
+	            times[c] = node.getHeight() + offset2[ti];
+	            if (node.isLeaf()) {
+	            	childCounts[c] = 0;
+	            	added[c] = node.getNr() + treeNodeCount[ti];
+	            	removed[c*2] = -1;
+	            	removed[c*2+1] = -1;
+
+	            }else {
+	            	added[c] = node.getNr() + treeNodeCount[ti];
+	            	removed[c*2] = node.getLeft().getNr() + treeNodeCount[ti];
+	            	removed[c*2+1] = node.getRight().getNr() + treeNodeCount[ti];
+	            	childCounts[c] = 2;
+	            }
 	            c++;
 	        }
-	        times[c] = tree.getRoot().getHeight() + offset[ti] + rootLength.get(ti).getValue();
+	        times[c] = tree.getRoot().getHeight() + offset2[ti] + rootLength.get(ti).getValue();
             childCounts[c] = 1;
+            removed[c*2] = tree.getRoot().getNr() + treeNodeCount[ti];
+            removed[c*2+1] = -1;
+            added[c] = -1;
 	        c++;
 	        ti++;
     	}
     }
 
+    
     /**
      * The beast.tree. RRB: not a good idea to keep a copy around, since it changes all the time.
      */
@@ -532,7 +632,16 @@ public class MultiTreeIntervals extends CalculationNode implements IntervalList 
     
     protected IntervalType[] intervalTypes;
     protected IntervalType[] storedIntervalTypes;
-
+    
+    /**
+     * The lineages in each interval (stored by node ref).
+     */
+    protected int [] lineagesAdded;
+    protected int [] lineagesRemoved;
+    
+    // Added these so can restore when needed for structured models
+    protected int [] storedLineagesAdded;
+    protected int [] storedLineagesRemoved;
     
     /**
      * The number of uncoalesced lineages within a particular interval.
@@ -545,6 +654,10 @@ public class MultiTreeIntervals extends CalculationNode implements IntervalList 
      */
     protected int intervalCount = 0;
     protected int storedIntervalCount = 0;
+    
+    double rootHeight;
+    double storedRootHeight;
+
 
     /**
      * are the intervals known?

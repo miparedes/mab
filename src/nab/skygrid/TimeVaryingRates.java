@@ -21,6 +21,10 @@ public class TimeVaryingRates extends CalculationNode {
             "Nes over time in log space", Input.Validate.REQUIRED);
     final public Input<RealParameter> rateShiftsInput = new Input<>("rateShifts",
             "When to switch between elements of Ne", Input.Validate.REQUIRED);
+    
+    final public Input<Boolean> varyTimesContinuously = new Input<>("continuous",
+            "when true, the rates are used as points in space (corresponding to the timing) "
+            + "between which rates are interpolated. If false (default) it assumes stepwise changes of rates", false);
 
     RealParameter rate;
     RealParameter rateShifts;
@@ -35,16 +39,6 @@ public class TimeVaryingRates extends CalculationNode {
     	rateShifts = rateShiftsInput.get();
     	rate.setDimension(rateShifts.getDimension());  
     	recalculateRate();
-    	
-//    	System.out.print("rate=[");
-//    	double time = 0.0;
-//    	while (time < 0.15) {
-//    		System.out.print(getMeanRate(time, time+0.001) + ",");
-//    		time+=0.0001;
-//    	}
-//    	System.out.print("];");
-//    	System.exit(0);
-    			
     }
 
 	public double getRate(double t) {		

@@ -51,6 +51,9 @@ public class MultiTreeCoalescent extends MultiTreeDistribution {
     boolean hasRateMultiplier = false;
     boolean hasSamplingRate = false;
     
+    boolean allDirty = false;
+    
+    
     @Override
     public void initAndValidate() {
         intervals = multiTreeIntervalsInput.get();
@@ -198,13 +201,8 @@ public class MultiTreeCoalescent extends MultiTreeDistribution {
                 	logL += Math.log(mig/popSizeFunction.getPopSize(finishTime));                
             }
             if (hasSamplingRate) {
-//            	else
-            		
-            	
-//            	System.out.println(duration / intervalArea);
             	if (intervals.getIntervalType(i) == IntervalType.SAMPLE) {
             		double sampling = Math.exp(samplingRate.getRate(finishTime)) * popSizeFunction.getPopSize(finishTime);
-//            		System.out.println(Math.log(meanSampling));
                     logL += Math.log(sampling);            		
             	}
             	if (intervalArea>0.0) {
@@ -221,6 +219,9 @@ public class MultiTreeCoalescent extends MultiTreeDistribution {
 
     @Override
     protected boolean requiresRecalculation() {
+    	if (((CalculationNode) popSizeInput.get()).isDirtyCalculation() || immigrationRateInput.isDirty())
+    		allDirty=true;
+    	
         return ((CalculationNode) popSizeInput.get()).isDirtyCalculation() || super.requiresRecalculation();
     }
 }

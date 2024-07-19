@@ -50,17 +50,22 @@ public class AncestralMappedTreeSequenceLogger extends BEASTObject implements Fu
 	List<Integer[]> mapping;
 
 	Map<String, String> translationsTable;
+	
+	@Override
+	public void initAndValidate() {
+		dataType = ancestralTreeLikelihoodInput.get().get(0).dataInput.get().getDataType();
+		totalLength = ancestralTreeLikelihoodInput.get().get(0).dataInput.get().getSiteCount();
+	}
+
 
 	@Override
 	public void init(PrintStream out) {
 		((Tree) ancestralTreeLikelihoodInput.get().get(0).treeInput.get()).init(out);
-
-		dataType = ancestralTreeLikelihoodInput.get().get(0).dataInput.get().getDataType();
-		totalLength = ancestralTreeLikelihoodInput.get().get(0).dataInput.get().getSiteCount();
-		;
-
+		initArrays();
+	}
+	
+	private void initArrays() {
 		mapping = new ArrayList<>();
-
 		for (int i = 0; i < ancestralTreeLikelihoodInput.get().size(); i++) {
 			if (ancestralTreeLikelihoodInput.get().get(i).dataInput.get() instanceof FilteredAlignment) {
 				mapping.add(parseFilter(
@@ -81,6 +86,7 @@ public class AncestralMappedTreeSequenceLogger extends BEASTObject implements Fu
 		}
 		if (translateInput.get())
 			initTable();
+
 	}
 
 	private Integer[] parseFilter(String filterString, Alignment alignment, int redCount) {
@@ -151,10 +157,12 @@ public class AncestralMappedTreeSequenceLogger extends BEASTObject implements Fu
 
 	@Override
 	public void log(long sample, PrintStream out) {
+//		if (mapping==null)
 		for (int i = 0; i < ancestralTreeLikelihoodInput.get().size(); i++) {
 			ancestralTreeLikelihoodInput.get().get(i).calculateLogP();
 			ancestralTreeLikelihoodInput.get().get(i).redrawAncestralStates();
 		}
+		initArrays();
 		mappedMascotInput.get().calculateLogP();
 		Node mappedRoot = mappedMascotInput.get().getRoot();
 		mappedRoot.sort();
@@ -379,11 +387,6 @@ public class AncestralMappedTreeSequenceLogger extends BEASTObject implements Fu
 		return 0;
 	}
 
-	@Override
-	public void initAndValidate() {
-		// TODO Auto-generated method stub
-
-	}
 
 	private void initTable() {
 		String dna = "AAA AAC AAG AAT ACA ACC ACG ACT AGA AGC AGG AGT ATA ATC ATG ATT CAA CAC CAG CAT CCA CCC CCG CCT CGA CGC CGG CGT CTA CTC CTG CTT GAA GAC GAG GAT GCA GCC GCG GCT GGA GGC GGG GGT GTA GTC GTG GTT TAA TAC TAG TAT TCA TCC TCG TCT TGA TGC TGG TGT TTA TTC TTG TTT";

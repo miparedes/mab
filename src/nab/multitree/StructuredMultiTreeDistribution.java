@@ -10,8 +10,8 @@ import beast.core.Input.Validate;
 import beast.core.State;
 import beast.evolution.tree.coalescent.TreeIntervals;
 
-public class MultiTreeDistribution extends Distribution {
-    final public Input<MultiTreeIntervals> multiTreeIntervalsInput = new Input<>("multiTreeIntervals", "Intervals for a phylogenetic beast tree", Validate.REQUIRED);
+public class StructuredMultiTreeDistribution extends Distribution {
+    final public Input<StructuredMultiTreeIntervals> multiTreeIntervalsInput = new Input<>("multiTreeIntervals", "Intervals for a phylogenetic beast tree", Validate.REQUIRED);
 
 	@Override
 	public List<String> getArguments() {
@@ -33,7 +33,7 @@ public class MultiTreeDistribution extends Distribution {
     
     @Override
     protected boolean requiresRecalculation() {
-    	MultiTreeIntervals ti = multiTreeIntervalsInput.get();
+    	StructuredMultiTreeIntervals ti = multiTreeIntervalsInput.get();
         if (ti != null) {
             //boolean d = ti.isDirtyCalculation();
             //assert d;
