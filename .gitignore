@@ -11,3 +11,7 @@
 /dist/
 /templates/MascotBSSVS/
 src/beast/mascot/operators/BitFlipBSSVSOperator.java
+
+*.log
+*.tree
+*.trees

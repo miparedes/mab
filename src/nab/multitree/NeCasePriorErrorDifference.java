@@ -16,7 +16,7 @@ import beast.core.Description;
 
 
 @Description("calculates the differences between the entries of a vector")
-public class NeCasePrior extends CalculationNode implements Function, Loggable {
+public class NeCasePriorErrorDifference extends CalculationNode implements Function, Loggable {
     final public Input<Function> functionInput = new Input<>("arg", "argument for which the differences for entries is calculated", Validate.REQUIRED);
     final public Input<Function> casesInput = new Input<>("logCases", "log of the cases", Validate.REQUIRED);
     final public Input<Function> overallNeScalerInput = new Input<>("overallNeScaler", "argument for which the differences for entries is calculated", Validate.REQUIRED);
@@ -28,16 +28,22 @@ public class NeCasePrior extends CalculationNode implements Function, Loggable {
     boolean needsRecompute = true;
     double[] errorTerm;
     double[] storedErrorTerm;
+    double[] errorTermDiff;
+    double[] storedErrorTermDiff;
+    
 
     @Override
     public void initAndValidate() {
     	errorTerm = new double[functionInput.get().getDimension()];
     	storedErrorTerm = new double[functionInput.get().getDimension()];
+    	errorTermDiff = new double[functionInput.get().getDimension()];
+    	storedErrorTermDiff = new double[functionInput.get().getDimension()];
+    	
     }
 
     @Override
     public int getDimension() {
-        return errorTerm.length;
+        return errorTermDiff.length;
     }
 
     @Override
@@ -45,7 +51,7 @@ public class NeCasePrior extends CalculationNode implements Function, Loggable {
         if (needsRecompute) {
             compute();
         }
-        return errorTerm[0];
+        return errorTermDiff[0];
     }
 
     /**
@@ -61,6 +67,14 @@ public class NeCasePrior extends CalculationNode implements Function, Loggable {
 //			System.out.println(overallNeScalerInput.get().getDimension());
 //			System.out.println(errorTerm.length);			
 		}
+		
+        //loop over all time points
+    	for (int j = 1; j < errorTerm.length; j++){
+    		errorTermDiff[j] = errorTerm[j] - errorTerm[j-1];   
+    	}
+        
+        // add contribution from first or last entry
+    	errorTermDiff[0] = 0;
         needsRecompute = false;
     }
 
@@ -69,7 +83,7 @@ public class NeCasePrior extends CalculationNode implements Function, Loggable {
         if (needsRecompute) {
             compute();
         }
-        return errorTerm[dim];
+        return errorTermDiff[dim];
     }
 
     /**
@@ -77,15 +91,15 @@ public class NeCasePrior extends CalculationNode implements Function, Loggable {
      */
     @Override
     public void store() {
-    	System.arraycopy(errorTerm, 0, storedErrorTerm, 0, errorTerm.length);
+    	System.arraycopy(errorTermDiff, 0, storedErrorTermDiff, 0, errorTermDiff.length);
         super.store();
     }
 
     @Override
     public void restore() {
-    	double [] tmp = storedErrorTerm;
-    	storedErrorTerm = errorTerm;
-    	errorTerm = tmp;
+    	double [] tmp = storedErrorTermDiff;
+    	storedErrorTermDiff = errorTermDiff;
+    	errorTermDiff = tmp;
         super.restore();
     }
 
@@ -97,8 +111,8 @@ public class NeCasePrior extends CalculationNode implements Function, Loggable {
 
 	@Override
 	public void init(PrintStream out) {
-		for (int i = 1; i < errorTerm.length; i++) {
-			out.print("errorTerm_"+i+"\t");
+		for (int i = 1; i < errorTermDiff.length; i++) {
+			out.print("errorTermDiff_"+i+"\t");
 			
 		}
 		
@@ -106,8 +120,8 @@ public class NeCasePrior extends CalculationNode implements Function, Loggable {
 	
 	@Override
 	public void log(long iteration, PrintStream out) {
-		for (int i = 1; i < errorTerm.length; i++) {
-			out.print(errorTerm[i] + "\t");
+		for (int i = 1; i < errorTermDiff.length; i++) {
+			out.print(errorTermDiff[i] + "\t");
 		}
 				
 		
